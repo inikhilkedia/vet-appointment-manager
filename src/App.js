@@ -1,76 +1,114 @@
-import { useState, useEffect, useCallback } from 'react'
-import { BiCalendar } from "react-icons/bi"
-import Search from "./components/Search"
-import AddAppointment from "./components/AddAppointment"
-import AppointmentInfo from "./components/AppointmentInfo"
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { BiCalendar } from "react-icons/bi";
+import Search from "./components/Search";
+import AddAppointment from "./components/AddAppointment";
+import AppointmentInfo from "./components/AppointmentInfo";
+import debounce from "lodash/debounce";
 
-function App() {
+export default function App() {
+	const [appointmentList, setAppointmentList] = useState([]);
+	const [query, setQuery] = useState("");
+	const [sortBy, setSortBy] = useState("aptDate");
+	const [orderBy, setOrderBy] = useState("asc");
 
-  let [appointmentList, setAppointmentList] = useState([]);
-  let [query, setQuery] = useState("");
-  let [sortBy, setSortBy] = useState("petName");
-  let [orderBy, setOrderBy] = useState("asc");
+	// Memoize filtered and sorted appointments
+	const filteredAppointments = useMemo(() => {
+		const lowerCaseQuery = query.toLowerCase();
+		return appointmentList
+			.filter((item) => {
+				const { petName, ownerName, aptNotes } = item;
+				return (
+					petName.toLowerCase().includes(lowerCaseQuery) ||
+					ownerName.toLowerCase().includes(lowerCaseQuery) ||
+					aptNotes.toLowerCase().includes(lowerCaseQuery)
+				);
+			})
+			.sort((a, b) => {
+				const order = orderBy === "asc" ? 1 : -1;
+				return a[sortBy].toLowerCase() < b[sortBy].toLowerCase()
+					? -1 * order
+					: 1 * order;
+			});
+	}, [appointmentList, query, sortBy, orderBy]);
 
-  const filteredAppointments = appointmentList.filter(
-    item => {
-      return (
-        item.petName.toLowerCase().includes(query.toLowerCase()) ||
-        item.ownerName.toLowerCase().includes(query.toLowerCase()) ||
-        item.aptNotes.toLowerCase().includes(query.toLowerCase())
-      )
-    }
-  ).sort((a, b) => {
-    let order = (orderBy === 'asc') ? 1 : -1;
-    return (
-      a[sortBy].toLowerCase() < b[sortBy].toLowerCase()
-        ? -1 * order : 1 * order
-    )
-  })
+	// Fetch data with async/await
+	const fetchData = useCallback(async () => {
+		try {
+			const response = await fetch("./data.json");
+			const data = await response.json();
+			setAppointmentList(data);
+		} catch (error) {
+			console.error("Error fetching data:", error);
+		}
+	}, []);
 
-  const fetchData = useCallback(() => {
-    fetch('./data.json')
-      .then(response => response.json())
-      .then(data => {
-        setAppointmentList(data)
-      });
-  }, [])
+	useEffect(() => {
+		fetchData();
+	}, [fetchData]);
 
-  useEffect(() => {
-    fetchData()
-  }, [fetchData]);
+	// Debounced search query handler
+	const debouncedQueryChange = useMemo(
+		() =>
+			debounce((inputQuery) => {
+				setQuery(inputQuery);
+			}, 300),
+		[]
+	);
 
-  return (
-    <div className="App container mx-auto mt-3 font-thin">
-      <h1 className="text-5xl mb-3">
-        <BiCalendar className="inline-block text-red-400 align-top" />Your Appointments</h1>
-      <AddAppointment
-        onSendAppointment={myAppointment => setAppointmentList([...appointmentList, myAppointment])}
-        lastId={appointmentList.reduce((max, item) => Number(item.id) > max ? Number(item.id) : max, 0)}
-      />
-      <Search query={query}
-        onQueryChange={myQuery => setQuery(myQuery)}
-        orderBy={orderBy}
-        onOrderByChange={mySort => setOrderBy(mySort)}
-        sortBy={sortBy}
-        onSortByChange={mySort => setSortBy(mySort)}
-      />
+	const handleQueryChange = useCallback(
+		(inputQuery) => {
+			debouncedQueryChange(inputQuery);
+		},
+		[debouncedQueryChange]
+	);
 
-      <ul className="divide-y divide-gray-200">
-        {filteredAppointments
-          .map(appointment => (
-            <AppointmentInfo key={appointment.id}
-              appointment={appointment}
-              onDeleteAppointment={
-                appointmentId =>
-                  setAppointmentList(appointmentList.filter(appointment =>
-                    appointment.id !== appointmentId))
-              }
-            />
-          ))
-        }
-      </ul>
-    </div>
-  );
+	const handleAddAppointment = useCallback((newAppointment) => {
+		setAppointmentList((prevList) => [...prevList, newAppointment]);
+	}, []);
+
+	const handleDeleteAppointment = useCallback((appointmentId) => {
+		setAppointmentList((prevList) =>
+			prevList.filter((appointment) => appointment.id !== appointmentId)
+		);
+	}, []);
+
+	const lastAppointmentId = useMemo(() => {
+		return appointmentList.reduce(
+			(max, item) => (Number(item.id) > max ? Number(item.id) : max),
+			0
+		);
+	}, [appointmentList]);
+
+	return (
+		<div className="App container mx-auto mt-3 font-thin">
+			<h1 className="text-5xl mb-3">
+				<BiCalendar className="inline-block text-red-400 align-top" />
+				Your Appointments
+			</h1>
+
+			<AddAppointment
+				onSendAppointment={handleAddAppointment}
+				lastId={lastAppointmentId}
+			/>
+
+			<Search
+				query={query}
+				onQueryChange={handleQueryChange}
+				orderBy={orderBy}
+				onOrderByChange={setOrderBy}
+				sortBy={sortBy}
+				onSortByChange={setSortBy}
+			/>
+
+			<ul className="divide-y divide-gray-200">
+				{filteredAppointments.map((appointment) => (
+					<AppointmentInfo
+						key={appointment.id}
+						appointment={appointment}
+						onDeleteAppointment={handleDeleteAppointment}
+					/>
+				))}
+			</ul>
+		</div>
+	);
 }
-
-export default App;
